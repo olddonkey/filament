@@ -6,58 +6,58 @@
 
 ![](images/filament_logo.png)
 
-# About
+# 关于本文
 
 This document is part of the [Filament project](https://github.com/google/filament). To report errors in this document please use the [project's issue tracker](https://github.com/google/filament/issues).
 
-## Authors
+## 作者
 
 - [Romain Guy](https://github.com/romainguy), [@romainguy](https://twitter.com/romainguy)
 - [Mathias Agopian](https://github.com/pixelflinger), [@darthmoosious](https://twitter.com/darthmoosious)
 
-# Overview
+# 概览
 
-Filament is a physically based rendering (PBR) engine for Android. The goal of Filament is to offer a set of tools and APIs for Android developers that will enable them to create high quality 2D and 3D rendering with ease.
+Filament 是一个为 Android 设计的基于物理的渲染引擎(PBR)。其主要目的是为安卓开发者提供一整套工具和接口，以便他们能够轻松地创建出高品质的二维和三维渲染效果。
 
-The goal of this document is to explain the equations and theory behind the material and lighting models used in Filament. This document is intended as a reference for contributors to Filament or developers interested in the inner workings of the engine. We will provide code snippets as needed to make the relationship between theory and practice as clear as possible.
+本文档旨在阐释 Filament 所应用的材质和光照模型背后的数学方程和理论原理。这份文档主要作为向 Filament 的贡献者或对该引擎内部机制感兴趣的开发人员提供参考信息。我们会根据需要插入代码片段，以便更清晰地展示理论与实际操作之间的联系。
 
-This document is not intended as a design document. It focuses solely on algorithms and its content could be used to implement PBR in any engine. However, this document explains why we chose specific algorithms/models over others.
+需要指出的是，本文档并非设计用途文档。它专注于介绍算法，并且其内容可以应用于任何引擎中实现 PBR。本文档还阐释了我们选择某些特定算法/模型而非其他选项的原因。
 
-Unless noted otherwise, all the 3D renderings present in this document have been generated in-engine (prototype or production). Many of these 3D renderings were captured during the early stages of development of Filament and do not reflect the final quality.
+除非特别注明，本文档中展示的所有三维渲染效果均是在 Filament 引擎中生成的（无论是原型还是成品）。其中很多三维渲染图是在 Filament 开发早期阶段捕获的，因此可能并不反映最终的质量水平。
 
-## Principles
+## 设计原则
 
-Real-time rendering is an active area of research and there is a large number of equations, algorithms and implementation to choose from for every single feature that needs to be implemented (the book *Rendering real-time shadows*, for instance, is a 400 pages summary of dozens of shadows rendering techniques). As such, we must first define our goals (or principles, to follow Brent Burley's seminal paper Physically-based shading at Disney [#Burley12]) before we can make informed decisions.
+实时渲染是图形学的一个热点，每个需实现的功能都有众多的方程、算法和实施方式可供选择(例如,《实时阴影渲染》这本书就是对数十种阴影渲染技术的400页概述)。因此，我们必须首先明确设计目标（或者按照 Brent Burley 在《迪士尼的物理基础着色》[Burley12]中的讲法：原则），然后才能做出明智的选择。
 
-Real-time mobile performance
-:   Our primary goal is to design and implement a rendering system able to perform efficiently on mobile platforms. The primary target will be OpenGL ES 3.x class GPUs.
+专注移动平台的实时渲染性能
+:   我们的主要目标是设计和实现一个在移动平台上高效运行的渲染系统。主要目标硬件是 OpenGL ES 3.x 级别的 GPU。
 
-Quality
-:   Our rendering system will emphasize overall picture quality. We will however accept quality compromises to support low and medium performance GPUs.
+渲染质量
+:   我们的渲染系统将注重整体画质。但为了支持低性能和中等性能的 GPU，我们也会接受一些质量上的妥协。
 
-Ease of use
-:   Artists need to be able to iterate often and quickly on their assets and our rendering system must allow them to do so intuitively. We must therefore provide parameters that are easy to understand (for instance, no specular power).
+易用性
+:   艺术家通常需要频繁且快速地迭代他们的资源(Asset)，我们的渲染系统必须能使他们能够直观地完成这一过程。因此，我们必须提供易于理解的参数（例如，不使用镜面反射强度）。
 
-    We also understand that not all developers have the luxury to work with artists. The physically based approach of our system will allow developers to craft visually plausible materials without the need to understand the theory behind our implementation.
+    我们也清楚，并非所有开发者都有机会与艺术家合作。基于物理学的设计出渲染系统能使开发者能够在不深入理解实现背后理论的情况下，创造出视觉上合理的材料。
 
-    For both artists and developers, our system will rely on as few parameters as possible to reduce trial and error and allow users to quickly master the material model.
+    对艺术家和开发者，我们将尽量使用尽可能少的参数，以减少试错过程，并帮助用户快速掌握材质模型。
 
-    In addition, any combination of parameter values should lead to physically plausible results. Physically implausible materials must be hard to create.
+    此外，任何参数的组合都应该产生物理上可信的结果。违反物理常识的材料必须难以创建。
 
-Familiarity
-:   Our system should use physical units everywhere possible: distances in meters or centimeters, color temperatures in Kelvin, light units in lumens or candelas, etc.
+熟悉度
+:   我们的系统应尽可能使用物理单位：例如，距离以米或厘米表示，色温以开尔文计量，光照强度以流明或坎德拉表示等。
 
-Flexibility
-:   A physically based approach must not preclude non-realistic rendering. User interfaces for instance will need unlit materials.
+灵活性
+:   基于物理的渲染方法不应排除非真实场景渲染。比如，用户界面可能需要不带光照的材料。
 
-Deployment size
-:   While not directly related to the content of this document, it bears emphasizing our desire to keep the rendering library as small as possible so any application can bundle it without increasing the binary to undesirable sizes.
+部署体积
+:   虽然这与本文档的直接内容关系不大，但我们强调保持渲染库体积尽可能小的愿望，以便任何应用程序都能集成它，而不会显著增加二进制文件的大小。
 
-## Physically based rendering
+## 基于物理的渲染
 
-We chose to adopt PBR for its benefits from an artistic and production efficient standpoints, and because it is compatible with our goals.
+我们选择采用基于物理的渲染(PBR)，主要是因为它在艺术表现和生产效率方面有明显优势，而且这种方法也符合我们的目标。
 
-Physically based rendering is a rendering method that provides a more accurate representation of materials and how they interact with light when compared to traditional real-time models. The separation of materials and lighting at the core of the PBR method makes it easier to create realistic assets that look accurate in all lighting conditions.
+基于物理的渲染是一种渲染手段，与传统的实时渲染模型相比，它能更真实地再现材质和光线的相互关系。PBR方法的核心在于将材质和光照分开处理，这使得创造出在各种光照条件下都能保持真实感的素材变得更简单。
 
 # Notation
 
